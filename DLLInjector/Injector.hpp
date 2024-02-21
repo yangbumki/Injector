@@ -2,8 +2,13 @@
 
 #include <Windows.h>
 #include <iostream>
+#include <TlHelp32.h>
 
 #define BUFSIZE		1024
+
+#define PROCESS_TITLE	1
+#define EXEC_NAME		2
+#define PROCESS_ID		3
 
 BOOL CALLBACK EnumWindowsProc(_In_ HWND hwnd, _In_ LPARAM lParam);
 
@@ -22,17 +27,48 @@ private:
 	};
 
 public:
-	INJECTOR(TCHAR* title) {
+	INJECTOR(TCHAR* title, int type = PROCESS_TITLE) {
 		if (title == NULL) ErrorMessage("Title is wrong");
 		wcscpy_s(processTitle, title);
 
-		if (EnumWindows(EnumWindowsProc, (LPARAM)this)) printf_s("[INJECTOR] : Find Process \n");
+		if (type == PROCESS_TITLE) {
+			if (EnumWindows(EnumWindowsProc, (LPARAM)this)) printf_s("[INJECTOR] : Find Process \n");
+			if (pid == NULL) ErrorMessage("PID is not exist");
+			processHandle = OpenProcess(PROCESS_ALL_ACCESS, TRUE, pid);
+			if (processHandle == NULL) {
+				printf("Process Open Failed\n");
+			};
+		}
+		else if (type == EXEC_NAME) {
+			auto snap = CreateToolhelp32Snapshot(TH32CS_SNAPALL, NULL);
+			PROCESSENTRY32 pe32;
+			
+			memset(&pe32, 0, sizeof(PROCESSENTRY32));
+			pe32.dwSize = sizeof(PROCESSENTRY32);
+			
+			while (TRUE) {
+				if (pe32.th32ProcessID == NULL) 
+					if (!Process32First(snap, &pe32)) ErrorMessage("Process32First");
+				
+				auto result = _wcsicmp(title, pe32.szExeFile);
+				if (result == 0 && result != 0xffffffff) {
+					pid = pe32.th32ProcessID;
+					break;
+				};
+				Process32Next(snap, &pe32);
+			}
+		}
+
+		processHandle = OpenProcess(PROCESS_ALL_ACCESS, TRUE, pid);
+	};
+
+	INJECTOR(int pid, int type = PROCESS_TITLE) {
 		if (pid == NULL) ErrorMessage("PID is not exist");
+		this->pid = pid;
 		processHandle = OpenProcess(PROCESS_ALL_ACCESS, TRUE, pid);
 		if (processHandle == NULL) {
 			printf("Process Open Failed\n");
 		};
-
 	};
 
 	~INJECTOR() {
@@ -50,7 +86,7 @@ public:
 		if (remoteThreadFunc == NULL) ErrorMessage("Function load Failed");
 
 		remoteThreadHandle = CreateRemoteThread(this->processHandle, NULL, 0, this->remoteThreadFunc, this->allocMemoryAddr, NULL, NULL);
- 		if (remoteThreadHandle == NULL) ErrorMessage("Create Remote Thread Failed");
+		if (remoteThreadHandle == NULL) ErrorMessage("Create Remote Thread Failed");
 
 		WaitForSingleObject(this->remoteThreadHandle, INFINITY);
 		return TRUE;
