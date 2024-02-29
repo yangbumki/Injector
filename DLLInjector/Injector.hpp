@@ -3,12 +3,14 @@
 #include <Windows.h>
 #include <iostream>
 #include <TlHelp32.h>
+#include "Privilege.hpp"
 
 #define BUFSIZE		1024
 
 #define PROCESS_TITLE	1
 #define EXEC_NAME		2
 #define PROCESS_ID		3
+#define GLOBAL			4
 
 BOOL CALLBACK EnumWindowsProc(_In_ HWND hwnd, _In_ LPARAM lParam);
 
@@ -26,7 +28,14 @@ private:
 		exit(1);
 	};
 
+	void AutoHandling() {
+		processHandle = OpenProcess(PROCESS_ALL_ACCESS, TRUE, pid);
+	};
 public:
+	INJECTOR() {
+
+	};
+
 	INJECTOR(TCHAR* title, int type = PROCESS_TITLE) {
 		if (title == NULL) ErrorMessage("Title is wrong");
 		wcscpy_s(processTitle, title);
@@ -63,7 +72,11 @@ public:
 	};
 
 	INJECTOR(int pid, int type = PROCESS_TITLE) {
-		if (pid == NULL) ErrorMessage("PID is not exist");
+		HANDLE th = NULL;
+		if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ALL_ACCESS, &th)) exit(1);
+		PRIVILEGE pv(th);
+		pv.SetPrivilege(SE_DEBUG_NAME, TRUE);
+		if (pid < 0) ErrorMessage("PID is not exist");
 		this->pid = pid;
 		processHandle = OpenProcess(PROCESS_ALL_ACCESS, TRUE, pid);
 		if (processHandle == NULL) {
@@ -78,8 +91,14 @@ public:
 	};
 
 	BOOL Injection() {
+		
 		allocMemoryAddr = VirtualAllocEx(processHandle, NULL, BUFSIZE, MEM_COMMIT, PAGE_READWRITE);
-		if (allocMemoryAddr == NULL) ErrorMessage("Mem Alloc Failed");
+		if (allocMemoryAddr == NULL) {
+			auto errCode = GetLastError();
+			printf("%d", errCode);
+			return FALSE;
+			/*ErrorMessage("Mem Alloc Failed");*/
+		}
 		if (!WriteProcessMemory(this->processHandle, this->allocMemoryAddr, this->dllPath, BUFSIZE, NULL)) ErrorMessage("Mem Write Failed");
 		auto modHandle = GetModuleHandle(L"kernel32.dll");
 		remoteThreadFunc = (LPTHREAD_START_ROUTINE)GetProcAddress(modHandle, "LoadLibraryW");
@@ -99,7 +118,7 @@ public:
 	};
 	TCHAR* GetDLLPath() { return this->dllPath; };
 
-	void SetPID(DWORD PID) { this->pid = PID; };
+	void SetPID(DWORD PID) { this->pid = PID; AutoHandling();  };
 	DWORD GetPID() { return this->pid; };
 
 	TCHAR* GetTitle() { return this->processTitle; };
